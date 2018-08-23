@@ -1,3 +1,14 @@
+---
+layout:     post   				    # 使用的布局（不需要改）
+title:     Java多线程通讯 				# 标题 
+subtitle:   Java多线程运行 #副标题
+date:       2018-08-23 				# 时间
+author:     BY Beppe					# 作者
+header-img:  	#这篇文章标题背景图片
+catalog: true 						# 是否归档
+tags:								#标签
+    - 多线程
+---
 最近在研究java多线程，这篇文章主要是介绍一些线程之间的通信：
 
 1：join 的方式，一个线程等待另一个线程执行完毕后在执行，可以控制线程执行的顺序；
