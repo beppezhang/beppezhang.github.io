@@ -1,0 +1,454 @@
+最近在研究java多线程，这篇文章主要是介绍一些线程之间的通信：
+
+1：join 的方式，一个线程等待另一个线程执行完毕后在执行，可以控制线程执行的顺序；
+
+场景：B线程要在A线程完成后才开始任务：
+
+不做任何控制的情况下的线程代码如下：
+
+@Test
+    public void threadTest4() throws InterruptedException, ExecutionException {
+//        线程A
+        final Thread threadA = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                printNum("线程A");
+            }
+        });
+//        线程B
+        Thread threadB= new Thread(new Runnable() {
+            @Override
+            public void run() {
+//                try {
+//                    threadA.join();
+//                } catch (InterruptedException e) {
+//                    e.printStackTrace();
+//                }
+                printNum("线程B");
+            }
+        });
+
+        threadA.start();
+        threadB.start();
+        Thread.sleep(1000);
+    }
+
+
+private void printNum(String threadName){
+        int i=0;
+        while (i++<3){
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            System.out.println(threadName+"打印"+i);
+        }
+    }
+这样打印出来的效果如下：
+
+线程B打印1
+线程A打印1
+线程B打印2
+线程A打印2
+线程B打印3
+线程A打印3
+这样不能保证 B 线程在A 线程执行完之后再执行；可以通过 join 方法来实现我们的需求： 当在 B 线程调用 A线程的join 方法 则会 B 线程等待A线程执行完了之后再执行B 线程；将上面注掉的代码解开就行了；
+
+这样打印出来的效果是：
+
+线程A打印1
+线程A打印2
+线程A打印3
+线程B打印1
+线程B打印2
+线程B打印3
+这样就能保证 B 线程在 A线程执行结束后再执行；
+
+2：多个线程按照一定的顺序交叉执行：
+
+场景：A 线程执行打印完 1 2 后 B 线程再执行打印 1 2 3 
+
+这样的场景需要使用 锁的等待和唤醒的机制来实现，代码实现如下：  需要用到两个方法 wait  和 notify 方法  这两个方法都是 Object对象的方法；
+
+@Test
+    public void threadTest5() throws InterruptedException, ExecutionException {
+        final Object o=new Object();
+        Thread threadA = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                synchronized (o){
+                    System.out.println("线程A 打印 1");
+                    try {
+                        o.wait();
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                    System.out.println("线程A 打印 2");
+                    System.out.println("线程A 打印 3");
+                }
+ 
+            }
+        });
+ 
+        Thread threadB = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                synchronized (o){
+                    System.out.println("线程B 打印 1");
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                    System.out.println("线程B 打印 2");
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                    System.out.println("线程B 打印 3");
+                    o.notify();
+                }
+ 
+            }
+        });
+        threadA.start();
+        threadB.start();
+        Thread.sleep(1000);
+    }
+下面分析这段代码的执行顺序：
+
+1：创建对象锁 
+
+final Object o=new Object();
+2：A 首先获得对象锁的控制权；
+
+3：A 调用  wait 方法 让出对象锁的控制权：
+
+o.wait();
+4：B 线程获得对象锁的控制权：
+
+B线程的业务代码处理完之后 调用 notify 方法，唤醒 正在 wait  的线程 然后结束B线程的同步代码块，
+
+5：A 线程获取到了对象锁的控制权后执行自己的业务逻辑；
+
+这样就满足我们需要的场景；
+
+3： 四个线程 A B C D，其中 D 要等到 A B C 全执行完毕后才执行，而且 A B C 是同步运行的
+
+通过 调用对象锁的 notify 和 wait 方法可以满足线程的执行顺序 但是线程是一次执行的，不能同时进行；
+
+需要同步进行有需要进行控制线程的执行顺序则可以使用 线程计数器来实现  
+
+代码如下：
+
+@Test
+    public void threadTest1() throws InterruptedException {
+        int worker = 3;
+        System.out.println("计数器的值为：" + worker);
+        final CountDownLatch countDownLatch = new CountDownLatch(worker);
+        Thread threadD = new Thread(new Runnable() {
+            @Override
+            public void run() {
+ 
+                System.out.println("D 线程等待其他线程!");
+                try {
+                    countDownLatch.await();
+                    System.out.println("其他线程运行结束，D线程开始");
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        });
+        threadD.start();
+ 
+        for (int i = 0; i < 3; i++) {
+ 
+            final int finalI = i;
+            Thread threadA = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    System.out.println(Thread.currentThread().getName() + finalI + "is working");
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                    System.out.println(Thread.currentThread().getName() + finalI + "is finish");
+                    countDownLatch.countDown();
+                }
+            });
+            threadA.start();
+        }
+ 
+        Thread.sleep(1000);
+ 
+    }
+　　上面代码的执行顺序如下：
+
+1：创建线程计数器：计数器的计数个数为3；
+
+2：当D线程开始执行的时候调用计数器的 await 方法，然后等待；
+
+3：执行 ABC 线程的业务逻辑的处理，在线程的业务逻辑处理之后分别调用 计数器的 数字减1.
+
+4：当计数器的数值为0 时D线程获得执行权，开始执行；
+
+ 
+
+4：多线程获取线程处理的返回值：
+
+代码如下：
+
+
+@Test
+    public void threadTest3() throws InterruptedException, ExecutionException {
+        Callable<Integer> callable = new Callable<Integer>() {
+            @Override
+            public Integer call() throws Exception {
+                System.out.println("开始任务！！");
+                Thread.sleep(100);
+                int result=0;
+                for (int i = 0; i <100 ; i++) {
+                    result +=i;
+                }
+                return result;
+            }
+        };
+        FutureTask<Integer> futureTask = new FutureTask<Integer>(callable);
+        new Thread(futureTask).start();
+        System.out.println("任务获取前");
+        System.out.println("任务获取到的结果是："+futureTask.get());
+        System.out.println("任务获取后");
+        Thread.sleep(1000);
+
+    }
+复制代码
+通过Callable  和 FutureTask 两类可以实现这个功能， 注意 FutureTask  的 get()方法是同步，必须在callable中的call 方法执行结束后；最近在研究java多线程，这篇文章主要是介绍一些线程之间的通信：
+
+1：join 的方式，一个线程等待另一个线程执行完毕后在执行，可以控制线程执行的顺序；
+
+场景：B线程要在A线程完成后才开始任务：
+
+不做任何控制的情况下的线程代码如下：
+
+复制代码
+@Test
+    public void threadTest4() throws InterruptedException, ExecutionException {
+//        线程A
+        final Thread threadA = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                printNum("线程A");
+            }
+        });
+//        线程B
+        Thread threadB= new Thread(new Runnable() {
+            @Override
+            public void run() {
+//                try {
+//                    threadA.join();
+//                } catch (InterruptedException e) {
+//                    e.printStackTrace();
+//                }
+                printNum("线程B");
+            }
+        });
+
+        threadA.start();
+        threadB.start();
+        Thread.sleep(1000);
+    }
+复制代码
+
+private void printNum(String threadName){
+        int i=0;
+        while (i++<3){
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            System.out.println(threadName+"打印"+i);
+        }
+    }
+这样打印出来的效果如下：
+
+线程B打印1
+线程A打印1
+线程B打印2
+线程A打印2
+线程B打印3
+线程A打印3
+这样不能保证 B 线程在A 线程执行完之后再执行；可以通过 join 方法来实现我们的需求： 当在 B 线程调用 A线程的join 方法 则会 B 线程等待A线程执行完了之后再执行B 线程；将上面注掉的代码解开就行了；
+
+这样打印出来的效果是：
+
+线程A打印1
+线程A打印2
+线程A打印3
+线程B打印1
+线程B打印2
+线程B打印3
+这样就能保证 B 线程在 A线程执行结束后再执行；
+
+2：多个线程按照一定的顺序交叉执行：
+
+场景：A 线程执行打印完 1 2 后 B 线程再执行打印 1 2 3 
+
+这样的场景需要使用 锁的等待和唤醒的机制来实现，代码实现如下：  需要用到两个方法 wait  和 notify 方法  这两个方法都是 Object对象的方法；
+@Test
+    public void threadTest5() throws InterruptedException, ExecutionException {
+        final Object o=new Object();
+        Thread threadA = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                synchronized (o){
+                    System.out.println("线程A 打印 1");
+                    try {
+                        o.wait();
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                    System.out.println("线程A 打印 2");
+                    System.out.println("线程A 打印 3");
+                }
+ 
+            }
+        });
+ 
+        Thread threadB = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                synchronized (o){
+                    System.out.println("线程B 打印 1");
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                    System.out.println("线程B 打印 2");
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                    System.out.println("线程B 打印 3");
+                    o.notify();
+                }
+ 
+            }
+        });
+        threadA.start();
+        threadB.start();
+        Thread.sleep(1000);
+    }
+下面分析这段代码的执行顺序：
+
+1：创建对象锁 
+
+final Object o=new Object();
+2：A 首先获得对象锁的控制权；
+
+3：A 调用  wait 方法 让出对象锁的控制权：
+
+o.wait();
+4：B 线程获得对象锁的控制权：
+
+B线程的业务代码处理完之后 调用 notify 方法，唤醒 正在 wait  的线程 然后结束B线程的同步代码块，
+
+5：A 线程获取到了对象锁的控制权后执行自己的业务逻辑；
+
+这样就满足我们需要的场景；
+
+3： 四个线程 A B C D，其中 D 要等到 A B C 全执行完毕后才执行，而且 A B C 是同步运行的
+
+通过 调用对象锁的 notify 和 wait 方法可以满足线程的执行顺序 但是线程是一次执行的，不能同时进行；
+
+需要同步进行有需要进行控制线程的执行顺序则可以使用 线程计数器来实现  
+
+代码如下：
+@Test
+    public void threadTest1() throws InterruptedException {
+        int worker = 3;
+        System.out.println("计数器的值为：" + worker);
+        final CountDownLatch countDownLatch = new CountDownLatch(worker);
+        Thread threadD = new Thread(new Runnable() {
+            @Override
+            public void run() {
+ 
+                System.out.println("D 线程等待其他线程!");
+                try {
+                    countDownLatch.await();
+                    System.out.println("其他线程运行结束，D线程开始");
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        });
+        threadD.start();
+ 
+        for (int i = 0; i < 3; i++) {
+ 
+            final int finalI = i;
+            Thread threadA = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    System.out.println(Thread.currentThread().getName() + finalI + "is working");
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                    System.out.println(Thread.currentThread().getName() + finalI + "is finish");
+                    countDownLatch.countDown();
+                }
+            });
+            threadA.start();
+        }
+ 
+        Thread.sleep(1000);
+ 
+    }
+　　上面代码的执行顺序如下：
+
+1：创建线程计数器：计数器的计数个数为3；
+
+2：当D线程开始执行的时候调用计数器的 await 方法，然后等待；
+
+3：执行 ABC 线程的业务逻辑的处理，在线程的业务逻辑处理之后分别调用 计数器的 数字减1.
+
+4：当计数器的数值为0 时D线程获得执行权，开始执行；
+
+ 
+
+4：多线程获取线程处理的返回值：
+
+代码如下：
+
+复制代码
+@Test
+    public void threadTest3() throws InterruptedException, ExecutionException {
+        Callable<Integer> callable = new Callable<Integer>() {
+            @Override
+            public Integer call() throws Exception {
+                System.out.println("开始任务！！");
+                Thread.sleep(100);
+                int result=0;
+                for (int i = 0; i <100 ; i++) {
+                    result +=i;
+                }
+                return result;
+            }
+        };
+        FutureTask<Integer> futureTask = new FutureTask<Integer>(callable);
+        new Thread(futureTask).start();
+        System.out.println("任务获取前");
+        System.out.println("任务获取到的结果是："+futureTask.get());
+        System.out.println("任务获取后");
+        Thread.sleep(1000);
+
+    }
+复制代码
+通过Callable  和 FutureTask 两类可以实现这个功能， 注意 FutureTask  的 get()方法是同步，必须在callable中的call 方法执行结束后；
